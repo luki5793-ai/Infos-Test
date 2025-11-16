@@ -1,0 +1,35 @@
+{
+  "name": "it-decision-maker-lead-finder",
+  "version": "1.0.0",
+  "description": "Apify Actor für IT-Entscheider Lead-Generierung im deutschen B2B-Markt",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "apify",
+    "actor",
+    "lead-generation",
+    "b2b",
+    "scraping",
+    "recruiting"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "apify": "^3.1.10",
+    "crawlee": "^3.7.0",
+    "playwright": "^1.40.0",
+    "cheerio": "^1.0.0-rc.12",
+    "email-validator": "^2.0.4",
+    "axios": "^1.6.2",
+    "p-limit": "^5.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

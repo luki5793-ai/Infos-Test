@@ -1,0 +1,71 @@
+{
+  "title": "IT Decision Maker Lead Finder",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "jobTitles": {
+      "title": "Berufsbezeichnungen der Entscheider",
+      "type": "array",
+      "description": "Liste der Zielpositionen (z.B. CTO, IT-Leiter, Head of IT)",
+      "editor": "stringList",
+      "default": ["CTO", "IT-Leiter", "Head of IT", "IT-Manager"],
+      "prefill": ["CTO", "IT-Leiter", "Head of IT"]
+    },
+    "locations": {
+      "title": "Zielstädte",
+      "type": "array",
+      "description": "Deutsche Städte für die Suche",
+      "editor": "stringList",
+      "default": ["München", "Berlin", "Hamburg", "Frankfurt", "Köln"],
+      "prefill": ["München", "Berlin"]
+    },
+    "companyNames": {
+      "title": "Spezifische Unternehmen (Optional)",
+      "type": "array",
+      "description": "Liste konkreter Unternehmen zum Targeting",
+      "editor": "stringList"
+    },
+    "industrySectors": {
+      "title": "Branchen (Optional)",
+      "type": "array",
+      "description": "Ziel-Industriebereiche",
+      "editor": "stringList",
+      "example": ["Software", "Fintech", "E-Commerce"]
+    },
+    "maxLeadsPerSearch": {
+      "title": "Max. Leads pro Suchabfrage",
+      "type": "integer",
+      "default": 50,
+      "minimum": 1,
+      "maximum": 200
+    },
+    "enableLinkedInScraping": {
+      "title": "LinkedIn Scraping aktivieren",
+      "type": "boolean",
+      "default": true
+    },
+    "enableXingScraping": {
+      "title": "Xing Scraping aktivieren",
+      "type": "boolean",
+      "default": true
+    },
+    "enableWebSearch": {
+      "title": "Web-Suche aktivieren",
+      "type": "boolean",
+      "default": true
+    },
+    "emailVerification": {
+      "title": "E-Mail Verifikation",
+      "type": "boolean",
+      "default": false,
+      "description": "Prüfe E-Mail-Adressen auf Gültigkeit (erhöht Laufzeit)"
+    },
+    "proxyConfiguration": {
+      "title": "Proxy-Konfiguration",
+      "type": "object",
+      "editor": "proxy",
+      "default": {"useApifyProxy": true}
+    }
+  },
+  "required": ["jobTitles", "locations"]
+}
