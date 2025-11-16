@@ -1,161 +1,256 @@
 /**
- * LinkedIn scraper module
- * Uses Apify's LinkedIn scraper actors or public profile data
+ * LinkedIn scraper module with login support
+ * Uses Playwright for browser automation
  */
 
-import { ApifyClient } from 'apify-client';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
+import { PlaywrightCrawler } from 'crawlee';
 import {
     generateEmailPatterns,
     extractDomain,
     parseFullName,
     randomDelay,
-    getRandomUserAgent,
 } from './utils.js';
 
 /**
- * Search LinkedIn profiles using Apify's LinkedIn scraper
- * Note: This requires Apify LinkedIn scraper actor and potentially LinkedIn login credentials
- * @param {string} jobTitle - Job title to search for
- * @param {string} location - Location to search in
- * @param {Object} options - Search options
- * @returns {Promise<Array<Object>>} - Array of LinkedIn profiles
+ * Login to LinkedIn
+ * @param {Page} page - Playwright page
+ * @param {string} email - LinkedIn email
+ * @param {string} password - LinkedIn password
+ * @returns {Promise<boolean>} - Whether login was successful
  */
-export async function searchLinkedInProfiles(jobTitle, location, options = {}) {
-    const {
-        maxResults = 50,
-        apifyClient = null,
-    } = options;
-
-    if (!apifyClient) {
-        console.log('LinkedIn scraping requires Apify client with API token');
-        return [];
+export async function loginToLinkedIn(page, email, password) {
+    if (!email || !password) {
+        console.log('⚠️ LinkedIn credentials not provided, skipping login');
+        return false;
     }
 
     try {
-        // Use Apify's LinkedIn People Search Actor
-        // Actor ID: apify/linkedin-people-scraper or similar
-        const actorId = 'apify/linkedin-people-scraper';
+        console.log('🔑 Logging in to LinkedIn...');
 
-        const input = {
-            searchUrl: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(jobTitle)}&location=${encodeURIComponent(location)}`,
-            maxResults: maxResults,
-        };
+        await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle' });
+        await randomDelay(2000, 3000);
 
-        console.log(`Running LinkedIn scraper for: ${jobTitle} in ${location}`);
+        // Fill in credentials
+        await page.fill('input[name="session_key"]', email);
+        await page.fill('input[name="session_password"]', password);
 
-        const run = await apifyClient.actor(actorId).call(input);
-        const { items } = await apifyClient.dataset(run.defaultDatasetId).listItems();
+        await randomDelay(1000, 2000);
 
-        return items.map(item => ({
-            name: item.name || item.fullName,
-            jobTitle: item.headline || item.title,
-            company: item.company,
-            location: item.location,
-            linkedInUrl: item.url || item.profileUrl,
-            profilePicture: item.photo || item.profilePicture,
-            summary: item.summary,
-        }));
+        // Click login button
+        await page.click('button[type="submit"]');
+
+        await randomDelay(5000, 7000);
+
+        // Check if login was successful
+        const isLoggedIn = await page.evaluate(() => {
+            return !window.location.href.includes('/login') &&
+                   !window.location.href.includes('/checkpoint');
+        });
+
+        if (isLoggedIn) {
+            console.log('✅ LinkedIn login successful');
+            return true;
+        } else {
+            console.log('❌ LinkedIn login failed - check credentials or handle CAPTCHA/2FA manually');
+            return false;
+        }
 
     } catch (error) {
-        console.log(`LinkedIn scraping error: ${error.message}`);
-        return [];
+        console.log(`LinkedIn login error: ${error.message}`);
+        return false;
     }
 }
 
 /**
- * Extract information from a public LinkedIn profile URL
- * Note: This only works for public profiles without login
- * @param {string} profileUrl - LinkedIn profile URL
- * @returns {Promise<Object|null>} - Profile information
+ * Search for profiles on LinkedIn
+ * @param {Page} page - Playwright page
+ * @param {string} jobTitle - Job title to search
+ * @param {string} location - Location
+ * @param {number} maxResults - Maximum results
+ * @returns {Promise<Array<Object>>} - Found profiles
  */
-export async function scrapePublicLinkedInProfile(profileUrl) {
+export async function searchLinkedInProfiles(page, jobTitle, location, maxResults = 50) {
+    const profiles = [];
+
     try {
-        // Add delay to avoid rate limiting
-        await randomDelay(2000, 4000);
+        const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(jobTitle + ' ' + location)}&origin=SWITCH_SEARCH_VERTICAL`;
 
-        const response = await axios.get(profileUrl, {
-            headers: {
-                'User-Agent': getRandomUserAgent(),
-            },
-            timeout: 15000,
-        });
+        console.log(`🔍 Searching LinkedIn: ${jobTitle} in ${location}`);
 
-        const $ = cheerio.load(response.data);
+        await page.goto(searchUrl, { waitUntil: 'networkidle' });
+        await randomDelay(3000, 5000);
 
-        // Try to extract basic information from public profile
-        // Note: LinkedIn's HTML structure changes frequently
-        const profile = {
-            name: null,
-            jobTitle: null,
-            company: null,
-            location: null,
-            linkedInUrl: profileUrl,
-        };
-
-        // Extract from meta tags (more reliable for public profiles)
-        profile.name = $('meta[property="og:title"]').attr('content') || null;
-        profile.jobTitle = $('meta[property="og:description"]').attr('content')?.split('·')[0]?.trim() || null;
-
-        // Try to extract from JSON-LD schema
-        const jsonLd = $('script[type="application/ld+json"]').html();
-        if (jsonLd) {
-            try {
-                const data = JSON.parse(jsonLd);
-                if (data['@type'] === 'Person') {
-                    profile.name = data.name || profile.name;
-                    profile.jobTitle = data.jobTitle || profile.jobTitle;
-                    profile.company = data.worksFor?.name || null;
-                }
-            } catch (e) {
-                // JSON parsing failed
-            }
+        // Scroll to load more results
+        for (let i = 0; i < 3; i++) {
+            await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+            await randomDelay(2000, 3000);
         }
 
-        return profile;
+        // Extract profile data from search results
+        const searchResults = await page.evaluate(() => {
+            const results = [];
+            const items = document.querySelectorAll('.reusable-search__result-container');
+
+            items.forEach(item => {
+                try {
+                    const nameElement = item.querySelector('.entity-result__title-text a span[aria-hidden="true"]');
+                    const titleElement = item.querySelector('.entity-result__primary-subtitle');
+                    const locationElement = item.querySelector('.entity-result__secondary-subtitle');
+                    const linkElement = item.querySelector('.entity-result__title-text a');
+
+                    const profile = {
+                        name: nameElement?.textContent?.trim() || null,
+                        jobTitle: titleElement?.textContent?.trim() || null,
+                        location: locationElement?.textContent?.trim() || null,
+                        linkedInUrl: linkElement?.href || null,
+                    };
+
+                    if (profile.name) {
+                        results.push(profile);
+                    }
+                } catch (e) {
+                    // Skip invalid items
+                }
+            });
+
+            return results;
+        });
+
+        profiles.push(...searchResults.slice(0, maxResults));
+        console.log(`✅ Found ${profiles.length} profiles on LinkedIn`);
 
     } catch (error) {
-        console.log(`Failed to scrape LinkedIn profile ${profileUrl}: ${error.message}`);
+        console.log(`LinkedIn search error: ${error.message}`);
+    }
+
+    return profiles;
+}
+
+/**
+ * Scrape detailed profile information
+ * @param {Page} page - Playwright page
+ * @param {string} profileUrl - LinkedIn profile URL
+ * @returns {Promise<Object|null>} - Profile details
+ */
+export async function scrapeLinkedInProfile(page, profileUrl) {
+    try {
+        await page.goto(profileUrl, { waitUntil: 'networkidle' });
+        await randomDelay(3000, 5000);
+
+        const profileData = await page.evaluate(() => {
+            const data = {
+                name: null,
+                jobTitle: null,
+                company: null,
+                location: null,
+                about: null,
+            };
+
+            // Extract name
+            const nameElement = document.querySelector('h1.text-heading-xlarge');
+            data.name = nameElement?.textContent?.trim() || null;
+
+            // Extract current position
+            const titleElement = document.querySelector('.text-body-medium.break-words');
+            data.jobTitle = titleElement?.textContent?.trim() || null;
+
+            // Extract location
+            const locationElement = document.querySelector('.text-body-small.inline.t-black--light.break-words');
+            data.location = locationElement?.textContent?.trim() || null;
+
+            // Extract company from experience section
+            const companyElement = document.querySelector('#experience + div .display-flex.flex-column.full-width .t-bold span[aria-hidden="true"]');
+            data.company = companyElement?.textContent?.trim() || null;
+
+            // Extract about section
+            const aboutElement = document.querySelector('#about + div .display-flex.full-width');
+            data.about = aboutElement?.textContent?.trim() || null;
+
+            return data;
+        });
+
+        return profileData;
+
+    } catch (error) {
+        console.log(`Failed to scrape profile ${profileUrl}: ${error.message}`);
         return null;
     }
 }
 
 /**
- * Generate LinkedIn search URLs for manual scraping
- * @param {string} jobTitle - Job title
- * @param {string} location - Location
- * @param {string} company - Company name (optional)
- * @returns {Array<string>} - LinkedIn search URLs
+ * Find IT decision makers on LinkedIn with login
+ * @param {Array<string>} jobTitles - Job titles
+ * @param {Array<string>} locations - Locations
+ * @param {Object} options - Options
+ * @returns {Promise<Array<Object>>} - Found profiles
  */
-export function generateLinkedInSearchUrls(jobTitle, location, company = null) {
-    const baseUrl = 'https://www.linkedin.com/search/results/people/';
-    const urls = [];
+export async function findITDecisionMakers(jobTitles, locations, options = {}) {
+    const {
+        maxLeadsPerSearch = 50,
+        linkedInEmail = null,
+        linkedInPassword = null,
+        proxyConfiguration = {},
+    } = options;
 
-    // Basic search
-    const params1 = new URLSearchParams({
-        keywords: jobTitle,
-        origin: 'SWITCH_SEARCH_VERTICAL',
-    });
-    urls.push(`${baseUrl}?${params1.toString()}`);
+    const allProfiles = [];
 
-    // With location
-    const params2 = new URLSearchParams({
-        keywords: `${jobTitle} ${location}`,
-        origin: 'SWITCH_SEARCH_VERTICAL',
-    });
-    urls.push(`${baseUrl}?${params2.toString()}`);
-
-    // With company
-    if (company) {
-        const params3 = new URLSearchParams({
-            keywords: `${jobTitle} ${company}`,
-            origin: 'SWITCH_SEARCH_VERTICAL',
-        });
-        urls.push(`${baseUrl}?${params3.toString()}`);
+    // Check if credentials are provided
+    if (!linkedInEmail || !linkedInPassword) {
+        console.log('⚠️ LinkedIn credentials not provided. Skipping LinkedIn scraping.');
+        console.log('ℹ️  Add linkedInEmail and linkedInPassword to enable LinkedIn scraping.');
+        return [];
     }
 
-    return urls;
+    try {
+        const crawler = new PlaywrightCrawler({
+            launchContext: {
+                launchOptions: {
+                    headless: true,
+                },
+            },
+            maxRequestsPerCrawl: 100,
+            requestHandler: async ({ page, request }) => {
+                const { jobTitle, location, isLogin } = request.userData;
+
+                if (isLogin) {
+                    // Perform login
+                    const loginSuccess = await loginToLinkedIn(page, linkedInEmail, linkedInPassword);
+
+                    if (!loginSuccess) {
+                        throw new Error('LinkedIn login failed');
+                    }
+
+                    // After login, search for profiles
+                    for (const title of jobTitles) {
+                        for (const loc of locations) {
+                            const profiles = await searchLinkedInProfiles(page, title, loc, maxLeadsPerSearch);
+
+                            // Enrich profiles with email patterns
+                            for (const profile of profiles) {
+                                const enriched = enrichLinkedInProfile(profile);
+                                allProfiles.push(enriched);
+                            }
+
+                            await randomDelay(5000, 8000);
+                        }
+                    }
+                }
+            },
+        });
+
+        // Start with login request
+        await crawler.run([
+            {
+                url: 'https://www.linkedin.com/login',
+                userData: { isLogin: true },
+            },
+        ]);
+
+    } catch (error) {
+        console.log(`LinkedIn scraping error: ${error.message}`);
+    }
+
+    return allProfiles;
 }
 
 /**
@@ -172,108 +267,19 @@ export function enrichLinkedInProfile(profile, companyWebsite = null) {
     }
 
     const { firstName, lastName } = parseFullName(profile.name);
+    enriched.firstName = firstName;
+    enriched.lastName = lastName;
 
-    // Generate email patterns if we have company website
-    if (companyWebsite) {
+    // Generate email patterns if we have company info
+    if (companyWebsite || profile.company) {
         const domain = extractDomain(companyWebsite, profile.company);
         if (domain) {
             enriched.possibleEmails = generateEmailPatterns(firstName, lastName, domain);
-            enriched.emailConfidence = 'medium'; // Pattern-based
-        }
-    } else if (profile.company) {
-        // Try to guess domain from company name
-        const domain = extractDomain(null, profile.company);
-        if (domain) {
-            enriched.possibleEmails = generateEmailPatterns(firstName, lastName, domain);
-            enriched.emailConfidence = 'low'; // Guessed domain
+            enriched.emailConfidence = companyWebsite ? 'medium' : 'low';
         }
     }
+
+    enriched.source = 'linkedin';
 
     return enriched;
-}
-
-/**
- * Search for IT decision makers on LinkedIn
- * @param {Array<string>} jobTitles - Job titles to search for
- * @param {Array<string>} locations - Locations to search in
- * @param {Object} options - Search options
- * @returns {Promise<Array<Object>>} - Found profiles
- */
-export async function findITDecisionMakers(jobTitles, locations, options = {}) {
-    const {
-        maxLeadsPerSearch = 50,
-        apifyClient = null,
-        useApifyActor = false,
-    } = options;
-
-    const allProfiles = [];
-
-    // If using Apify Actor
-    if (useApifyActor && apifyClient) {
-        for (const jobTitle of jobTitles) {
-            for (const location of locations) {
-                const profiles = await searchLinkedInProfiles(jobTitle, location, {
-                    maxResults: maxLeadsPerSearch,
-                    apifyClient,
-                });
-
-                allProfiles.push(...profiles);
-                await randomDelay(3000, 5000);
-            }
-        }
-    } else {
-        // Return search URLs for manual use or external scraping
-        console.log('LinkedIn Actor not configured. Generating search URLs...');
-
-        const searchUrls = [];
-        for (const jobTitle of jobTitles) {
-            for (const location of locations) {
-                const urls = generateLinkedInSearchUrls(jobTitle, location);
-                searchUrls.push(...urls);
-            }
-        }
-
-        console.log(`Generated ${searchUrls.length} LinkedIn search URLs`);
-        return searchUrls.map(url => ({
-            source: 'linkedin_search_url',
-            url,
-            note: 'Use this URL to manually search LinkedIn or with LinkedIn scraper actor',
-        }));
-    }
-
-    return allProfiles;
-}
-
-/**
- * Extract company information from LinkedIn company page
- * @param {string} companyUrl - LinkedIn company page URL
- * @returns {Promise<Object|null>} - Company information
- */
-export async function scrapeLinkedInCompany(companyUrl) {
-    try {
-        await randomDelay(2000, 4000);
-
-        const response = await axios.get(companyUrl, {
-            headers: {
-                'User-Agent': getRandomUserAgent(),
-            },
-            timeout: 15000,
-        });
-
-        const $ = cheerio.load(response.data);
-
-        const company = {
-            name: $('meta[property="og:title"]').attr('content') || null,
-            description: $('meta[property="og:description"]').attr('content') || null,
-            website: null,
-            industry: null,
-            size: null,
-        };
-
-        return company;
-
-    } catch (error) {
-        console.log(`Failed to scrape LinkedIn company ${companyUrl}: ${error.message}`);
-        return null;
-    }
 }

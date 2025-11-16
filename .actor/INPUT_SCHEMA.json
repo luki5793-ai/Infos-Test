@@ -64,6 +64,34 @@
       "default": false,
       "description": "Prüfe E-Mail-Adressen auf Gültigkeit (erhöht Laufzeit)"
     },
+    "linkedInEmail": {
+      "title": "LinkedIn Login E-Mail",
+      "type": "string",
+      "description": "E-Mail-Adresse für LinkedIn-Login (erforderlich für LinkedIn-Scraping)",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "linkedInPassword": {
+      "title": "LinkedIn Passwort",
+      "type": "string",
+      "description": "Passwort für LinkedIn-Login",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "xingEmail": {
+      "title": "Xing Login E-Mail",
+      "type": "string",
+      "description": "E-Mail-Adresse für Xing-Login (erforderlich für Xing-Scraping)",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "xingPassword": {
+      "title": "Xing Passwort",
+      "type": "string",
+      "description": "Passwort für Xing-Login",
+      "editor": "textfield",
+      "isSecret": true
+    },
     "proxyConfiguration": {
       "title": "Proxy-Konfiguration",
       "type": "object",

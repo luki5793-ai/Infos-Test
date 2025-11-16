@@ -1,167 +1,253 @@
 /**
- * Xing scraper module for German B2B market
- * Searches for IT decision makers on Xing
+ * Xing scraper module with login support
+ * Uses Playwright for browser automation
  */
 
-import axios from 'axios';
-import * as cheerio from 'cheerio';
+import { PlaywrightCrawler } from 'crawlee';
 import {
     generateEmailPatterns,
     extractDomain,
     parseFullName,
     randomDelay,
-    getRandomUserAgent,
-    extractEmailsFromText,
 } from './utils.js';
 
 /**
- * Generate Xing search URLs
- * @param {string} jobTitle - Job title
- * @param {string} location - Location
- * @returns {string} - Xing search URL
+ * Login to Xing
+ * @param {Page} page - Playwright page
+ * @param {string} email - Xing email
+ * @param {string} password - Xing password
+ * @returns {Promise<boolean>} - Whether login was successful
  */
-export function generateXingSearchUrl(jobTitle, location) {
-    const keywords = `${jobTitle} ${location}`.trim();
-    return `https://www.xing.com/search/members?keywords=${encodeURIComponent(keywords)}`;
+export async function loginToXing(page, email, password) {
+    if (!email || !password) {
+        console.log('⚠️ Xing credentials not provided, skipping login');
+        return false;
+    }
+
+    try {
+        console.log('🔑 Logging in to Xing...');
+
+        await page.goto('https://login.xing.com/', { waitUntil: 'networkidle' });
+        await randomDelay(2000, 3000);
+
+        // Fill in credentials
+        await page.fill('input[name="username"]', email);
+        await page.fill('input[name="password"]', password);
+
+        await randomDelay(1000, 2000);
+
+        // Click login button
+        await page.click('button[type="submit"]');
+
+        await randomDelay(5000, 7000);
+
+        // Check if login was successful
+        const isLoggedIn = await page.evaluate(() => {
+            return !window.location.href.includes('/login') &&
+                   (window.location.href.includes('/feed') || window.location.href.includes('/profile'));
+        });
+
+        if (isLoggedIn) {
+            console.log('✅ Xing login successful');
+            return true;
+        } else {
+            console.log('❌ Xing login failed - check credentials or handle CAPTCHA/2FA manually');
+            return false;
+        }
+
+    } catch (error) {
+        console.log(`Xing login error: ${error.message}`);
+        return false;
+    }
 }
 
 /**
  * Search for profiles on Xing
+ * @param {Page} page - Playwright page
  * @param {string} jobTitle - Job title
  * @param {string} location - Location
- * @param {Object} options - Search options
+ * @param {number} maxResults - Maximum results
  * @returns {Promise<Array<Object>>} - Found profiles
  */
-export async function searchXingProfiles(jobTitle, location, options = {}) {
-    const {
-        maxResults = 50,
-    } = options;
-
-    const searchUrl = generateXingSearchUrl(jobTitle, location);
+export async function searchXingProfiles(page, jobTitle, location, maxResults = 50) {
     const profiles = [];
 
     try {
-        console.log(`Searching Xing: ${searchUrl}`);
+        const keywords = `${jobTitle} ${location}`.trim();
+        const searchUrl = `https://www.xing.com/search/members?keywords=${encodeURIComponent(keywords)}`;
 
-        await randomDelay(2000, 4000);
+        console.log(`🔍 Searching Xing: ${jobTitle} in ${location}`);
 
-        const response = await axios.get(searchUrl, {
-            headers: {
-                'User-Agent': getRandomUserAgent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'de,en;q=0.5',
-            },
-            timeout: 15000,
-        });
+        await page.goto(searchUrl, { waitUntil: 'networkidle' });
+        await randomDelay(3000, 5000);
 
-        const $ = cheerio.load(response.data);
+        // Scroll to load more results
+        for (let i = 0; i < 3; i++) {
+            await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+            await randomDelay(2000, 3000);
+        }
 
-        // Extract profile information from search results
-        // Note: Xing's structure may change, this is a basic implementation
-        $('.search-result-item, .profile-mini-profile').each((index, element) => {
-            if (profiles.length >= maxResults) return false;
+        // Extract profile data from search results
+        const searchResults = await page.evaluate(() => {
+            const results = [];
 
-            const $elem = $(element);
+            // Try multiple selectors as Xing's HTML structure varies
+            const selectors = [
+                '.search-result-item',
+                '[data-testid="search-result"]',
+                '.profile-mini-profile',
+                'article',
+            ];
 
-            const profile = {
-                name: null,
-                jobTitle: null,
-                company: null,
-                location: null,
-                xingUrl: null,
-                source: 'xing',
-            };
-
-            // Try to extract name
-            profile.name = $elem.find('.name, .profile-name').text().trim() ||
-                          $elem.find('a[title]').attr('title') ||
-                          null;
-
-            // Try to extract job title
-            profile.jobTitle = $elem.find('.occupation, .job-title').text().trim() || null;
-
-            // Try to extract company
-            profile.company = $elem.find('.company, .company-name').text().trim() || null;
-
-            // Try to extract location
-            profile.location = $elem.find('.location').text().trim() || null;
-
-            // Try to extract profile URL
-            const profileLink = $elem.find('a[href*="/profile/"]').attr('href');
-            if (profileLink) {
-                profile.xingUrl = profileLink.startsWith('http') ? profileLink : `https://www.xing.com${profileLink}`;
+            let items = [];
+            for (const selector of selectors) {
+                items = document.querySelectorAll(selector);
+                if (items.length > 0) break;
             }
 
-            if (profile.name) {
-                profiles.push(profile);
-            }
+            items.forEach(item => {
+                try {
+                    // Try to find name
+                    let name = null;
+                    const nameSelectors = [
+                        'a.user-name',
+                        '.profile-name',
+                        'h3 a',
+                        '[data-testid="name"]',
+                    ];
+
+                    for (const selector of nameSelectors) {
+                        const elem = item.querySelector(selector);
+                        if (elem) {
+                            name = elem.textContent?.trim();
+                            break;
+                        }
+                    }
+
+                    // Try to find job title
+                    let jobTitle = null;
+                    const titleSelectors = [
+                        '.occupation',
+                        '.job-title',
+                        '[data-testid="occupation"]',
+                        '.headline',
+                    ];
+
+                    for (const selector of titleSelectors) {
+                        const elem = item.querySelector(selector);
+                        if (elem) {
+                            jobTitle = elem.textContent?.trim();
+                            break;
+                        }
+                    }
+
+                    // Try to find company
+                    let company = null;
+                    const companySelectors = [
+                        '.company',
+                        '.company-name',
+                        '[data-testid="company"]',
+                    ];
+
+                    for (const selector of companySelectors) {
+                        const elem = item.querySelector(selector);
+                        if (elem) {
+                            company = elem.textContent?.trim();
+                            break;
+                        }
+                    }
+
+                    // Try to find location
+                    let location = null;
+                    const locationSelectors = [
+                        '.location',
+                        '[data-testid="location"]',
+                    ];
+
+                    for (const selector of locationSelectors) {
+                        const elem = item.querySelector(selector);
+                        if (elem) {
+                            location = elem.textContent?.trim();
+                            break;
+                        }
+                    }
+
+                    // Try to find profile URL
+                    let xingUrl = null;
+                    const linkElement = item.querySelector('a[href*="/profile/"]');
+                    if (linkElement) {
+                        xingUrl = linkElement.href;
+                    }
+
+                    const profile = {
+                        name,
+                        jobTitle,
+                        company,
+                        location,
+                        xingUrl,
+                    };
+
+                    if (profile.name) {
+                        results.push(profile);
+                    }
+                } catch (e) {
+                    // Skip invalid items
+                }
+            });
+
+            return results;
         });
 
-        console.log(`Found ${profiles.length} profiles on Xing`);
+        profiles.push(...searchResults.slice(0, maxResults));
+        console.log(`✅ Found ${profiles.length} profiles on Xing`);
 
     } catch (error) {
         console.log(`Xing search error: ${error.message}`);
-
-        // Return search URL for manual use if automated search fails
-        return [{
-            source: 'xing_search_url',
-            url: searchUrl,
-            note: 'Use this URL to manually search Xing (login may be required)',
-        }];
     }
 
     return profiles;
 }
 
 /**
- * Scrape a public Xing profile
+ * Scrape detailed Xing profile
+ * @param {Page} page - Playwright page
  * @param {string} profileUrl - Xing profile URL
- * @returns {Promise<Object|null>} - Profile information
+ * @returns {Promise<Object|null>} - Profile details
  */
-export async function scrapeXingProfile(profileUrl) {
+export async function scrapeXingProfile(page, profileUrl) {
     try {
-        await randomDelay(2000, 4000);
+        await page.goto(profileUrl, { waitUntil: 'networkidle' });
+        await randomDelay(3000, 5000);
 
-        const response = await axios.get(profileUrl, {
-            headers: {
-                'User-Agent': getRandomUserAgent(),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'de,en;q=0.5',
-            },
-            timeout: 15000,
+        const profileData = await page.evaluate(() => {
+            const data = {
+                name: null,
+                jobTitle: null,
+                company: null,
+                location: null,
+                companyWebsite: null,
+            };
+
+            // Extract name
+            const nameElement = document.querySelector('h1.profile-header-name, h1');
+            data.name = nameElement?.textContent?.trim() || null;
+
+            // Extract job title
+            const titleElement = document.querySelector('.occupation, .profile-headline');
+            data.jobTitle = titleElement?.textContent?.trim() || null;
+
+            // Extract company
+            const companyElement = document.querySelector('.company-name, [data-testid="company"]');
+            data.company = companyElement?.textContent?.trim() || null;
+
+            // Extract location
+            const locationElement = document.querySelector('.location, [data-testid="location"]');
+            data.location = locationElement?.textContent?.trim() || null;
+
+            return data;
         });
 
-        const $ = cheerio.load(response.data);
-
-        const profile = {
-            name: null,
-            jobTitle: null,
-            company: null,
-            location: null,
-            xingUrl: profileUrl,
-            companyWebsite: null,
-        };
-
-        // Extract from meta tags
-        profile.name = $('meta[property="og:title"]').attr('content') || null;
-
-        // Try to extract job title from description
-        const description = $('meta[property="og:description"]').attr('content');
-        if (description) {
-            const parts = description.split('bei');
-            if (parts.length >= 2) {
-                profile.jobTitle = parts[0].trim();
-                profile.company = parts[1].trim();
-            }
-        }
-
-        // Try to extract company website
-        const companyLink = $('a[href*="company"]').attr('href');
-        if (companyLink) {
-            profile.companyWebsite = await scrapeXingCompanyWebsite(companyLink);
-        }
-
-        return profile;
+        return profileData;
 
     } catch (error) {
         console.log(`Failed to scrape Xing profile ${profileUrl}: ${error.message}`);
@@ -170,34 +256,78 @@ export async function scrapeXingProfile(profileUrl) {
 }
 
 /**
- * Scrape Xing company page for website URL
- * @param {string} companyUrl - Xing company page URL
- * @returns {Promise<string|null>} - Company website URL
+ * Find IT decision makers on Xing with login
+ * @param {Array<string>} jobTitles - Job titles
+ * @param {Array<string>} locations - Locations
+ * @param {Object} options - Options
+ * @returns {Promise<Array<Object>>} - Found profiles
  */
-export async function scrapeXingCompanyWebsite(companyUrl) {
-    try {
-        await randomDelay(1000, 2000);
+export async function findITDecisionMakersXing(jobTitles, locations, options = {}) {
+    const {
+        maxLeadsPerSearch = 50,
+        xingEmail = null,
+        xingPassword = null,
+    } = options;
 
-        const response = await axios.get(companyUrl, {
-            headers: {
-                'User-Agent': getRandomUserAgent(),
+    const allProfiles = [];
+
+    // Check if credentials are provided
+    if (!xingEmail || !xingPassword) {
+        console.log('⚠️ Xing credentials not provided. Skipping Xing scraping.');
+        console.log('ℹ️  Add xingEmail and xingPassword to enable Xing scraping.');
+        return [];
+    }
+
+    try {
+        const crawler = new PlaywrightCrawler({
+            launchContext: {
+                launchOptions: {
+                    headless: true,
+                },
             },
-            timeout: 10000,
+            maxRequestsPerCrawl: 100,
+            requestHandler: async ({ page, request }) => {
+                const { isLogin } = request.userData;
+
+                if (isLogin) {
+                    // Perform login
+                    const loginSuccess = await loginToXing(page, xingEmail, xingPassword);
+
+                    if (!loginSuccess) {
+                        throw new Error('Xing login failed');
+                    }
+
+                    // After login, search for profiles
+                    for (const jobTitle of jobTitles) {
+                        for (const location of locations) {
+                            const profiles = await searchXingProfiles(page, jobTitle, location, maxLeadsPerSearch);
+
+                            // Enrich profiles with email patterns
+                            for (const profile of profiles) {
+                                const enriched = enrichXingProfile(profile);
+                                allProfiles.push(enriched);
+                            }
+
+                            await randomDelay(5000, 8000);
+                        }
+                    }
+                }
+            },
         });
 
-        const $ = cheerio.load(response.data);
-
-        // Look for website link
-        const website = $('a[rel="nofollow external"]').attr('href') ||
-                       $('a.company-website').attr('href') ||
-                       null;
-
-        return website;
+        // Start with login request
+        await crawler.run([
+            {
+                url: 'https://login.xing.com/',
+                userData: { isLogin: true },
+            },
+        ]);
 
     } catch (error) {
-        console.log(`Failed to scrape Xing company page: ${error.message}`);
-        return null;
+        console.log(`Xing scraping error: ${error.message}`);
     }
+
+    return allProfiles;
 }
 
 /**
@@ -214,62 +344,32 @@ export function enrichXingProfile(profile, companyWebsite = null) {
     }
 
     const { firstName, lastName } = parseFullName(profile.name);
+    enriched.firstName = firstName;
+    enriched.lastName = lastName;
 
     // Generate email patterns if we have company website
     const website = companyWebsite || profile.companyWebsite;
-    if (website) {
+    if (website || profile.company) {
         const domain = extractDomain(website, profile.company);
         if (domain) {
             enriched.possibleEmails = generateEmailPatterns(firstName, lastName, domain);
-            enriched.emailConfidence = 'medium';
-        }
-    } else if (profile.company) {
-        // Try to guess domain from company name
-        const domain = extractDomain(null, profile.company);
-        if (domain) {
-            enriched.possibleEmails = generateEmailPatterns(firstName, lastName, domain);
-            enriched.emailConfidence = 'low';
+            enriched.emailConfidence = website ? 'medium' : 'low';
         }
     }
+
+    enriched.source = 'xing';
 
     return enriched;
 }
 
 /**
- * Find IT decision makers on Xing
- * @param {Array<string>} jobTitles - Job titles to search for
- * @param {Array<string>} locations - Locations to search in
- * @param {Object} options - Search options
- * @returns {Promise<Array<Object>>} - Found profiles
- */
-export async function findITDecisionMakersXing(jobTitles, locations, options = {}) {
-    const {
-        maxLeadsPerSearch = 50,
-    } = options;
-
-    const allProfiles = [];
-
-    for (const jobTitle of jobTitles) {
-        for (const location of locations) {
-            const profiles = await searchXingProfiles(jobTitle, location, {
-                maxResults: maxLeadsPerSearch,
-            });
-
-            allProfiles.push(...profiles);
-            await randomDelay(3000, 5000);
-        }
-    }
-
-    return allProfiles;
-}
-
-/**
  * Search for company employees on Xing
+ * @param {Page} page - Playwright page
  * @param {string} companyName - Company name
  * @param {Array<string>} jobTitles - Job titles to search for
  * @returns {Promise<Array<Object>>} - Found profiles
  */
-export async function searchXingCompanyEmployees(companyName, jobTitles = []) {
+export async function searchXingCompanyEmployees(page, companyName, jobTitles = []) {
     const profiles = [];
 
     for (const jobTitle of jobTitles) {
@@ -277,32 +377,11 @@ export async function searchXingCompanyEmployees(companyName, jobTitles = []) {
         const searchUrl = `https://www.xing.com/search/members?keywords=${encodeURIComponent(keywords)}`;
 
         try {
-            await randomDelay(2000, 4000);
+            await page.goto(searchUrl, { waitUntil: 'networkidle' });
+            await randomDelay(3000, 5000);
 
-            const response = await axios.get(searchUrl, {
-                headers: {
-                    'User-Agent': getRandomUserAgent(),
-                },
-                timeout: 15000,
-            });
-
-            const $ = cheerio.load(response.data);
-
-            // Extract profiles (similar to searchXingProfiles)
-            $('.search-result-item').each((_, element) => {
-                const $elem = $(element);
-
-                const profile = {
-                    name: $elem.find('.name').text().trim(),
-                    jobTitle: $elem.find('.occupation').text().trim(),
-                    company: companyName,
-                    source: 'xing',
-                };
-
-                if (profile.name) {
-                    profiles.push(profile);
-                }
-            });
+            const searchResults = await searchXingProfiles(page, jobTitle, companyName, 20);
+            profiles.push(...searchResults);
 
         } catch (error) {
             console.log(`Xing company search error: ${error.message}`);

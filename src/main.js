@@ -44,6 +44,10 @@ await Actor.main(async () => {
         enableXingScraping = true,
         enableWebSearch = true,
         emailVerification = false,
+        linkedInEmail = null,
+        linkedInPassword = null,
+        xingEmail = null,
+        xingPassword = null,
         proxyConfiguration = {},
     } = input;
 
@@ -74,8 +78,9 @@ await Actor.main(async () => {
         try {
             const linkedInProfiles = await findITDecisionMakers(jobTitles, locations, {
                 maxLeadsPerSearch,
-                apifyClient,
-                useApifyActor: !!apifyClient,
+                linkedInEmail,
+                linkedInPassword,
+                proxyConfiguration,
             });
 
             console.log(`Found ${linkedInProfiles.length} profiles on LinkedIn`);
@@ -106,6 +111,8 @@ await Actor.main(async () => {
         try {
             const xingProfiles = await findITDecisionMakersXing(jobTitles, locations, {
                 maxLeadsPerSearch,
+                xingEmail,
+                xingPassword,
             });
 
             console.log(`Found ${xingProfiles.length} profiles on Xing`);
