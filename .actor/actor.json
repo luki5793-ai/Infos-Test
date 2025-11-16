@@ -1,0 +1,71 @@
+{
+  "actorSpecification": 1,
+  "name": "it-decision-maker-lead-finder",
+  "title": "IT Decision Maker Lead Finder",
+  "description": "Sammelt Kontaktdaten von IT-Entscheidern bei deutschen Unternehmen durch Multi-Source-Scraping (LinkedIn, Xing, Web-Suche). Ideal für IT-Recruiting und B2B-Lead-Generierung.",
+  "version": "1.0.0",
+  "meta": {
+    "templateId": "node-playwright"
+  },
+  "input": "./.actor/INPUT_SCHEMA.json",
+  "dockerfile": "./Dockerfile",
+  "readme": "./README.md",
+  "categories": [
+    "LEAD_GENERATION",
+    "BUSINESS",
+    "SCRAPING"
+  ],
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "title": "IT Decision Maker Leads",
+      "description": "Strukturierte Lead-Daten mit Kontaktinformationen",
+      "views": {
+        "overview": {
+          "title": "Lead Overview",
+          "transformation": {
+            "fields": [
+              "name",
+              "jobTitle",
+              "company",
+              "email",
+              "emailConfidence",
+              "phone",
+              "location",
+              "qualityScore"
+            ]
+          },
+          "display": {
+            "component": "table",
+            "properties": {
+              "name": {
+                "label": "Name",
+                "format": "text"
+              },
+              "jobTitle": {
+                "label": "Position",
+                "format": "text"
+              },
+              "company": {
+                "label": "Unternehmen",
+                "format": "text"
+              },
+              "email": {
+                "label": "E-Mail",
+                "format": "text"
+              },
+              "emailConfidence": {
+                "label": "E-Mail Vertrauen",
+                "format": "text"
+              },
+              "qualityScore": {
+                "label": "Qualität",
+                "format": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
