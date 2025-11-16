@@ -78,6 +78,13 @@
       "editor": "textfield",
       "isSecret": true
     },
+    "linkedInSessionCookies": {
+      "title": "LinkedIn Session Cookies (Alternative zum Login)",
+      "type": "string",
+      "description": "Kopiere deine LinkedIn-Cookies aus dem Browser (JSON-Format). Anleitung: 1) Logge dich bei LinkedIn ein, 2) Öffne DevTools (F12), 3) Application > Cookies > linkedin.com, 4) Exportiere als JSON",
+      "editor": "textarea",
+      "isSecret": true
+    },
     "xingEmail": {
       "title": "Xing Login E-Mail",
       "type": "string",
@@ -90,6 +97,13 @@
       "type": "string",
       "description": "Passwort für Xing-Login",
       "editor": "textfield",
+      "isSecret": true
+    },
+    "xingSessionCookies": {
+      "title": "Xing Session Cookies (Alternative zum Login)",
+      "type": "string",
+      "description": "Kopiere deine Xing-Cookies aus dem Browser (JSON-Format). Siehe LinkedIn-Anleitung oben",
+      "editor": "textarea",
       "isSecret": true
     },
     "proxyConfiguration": {

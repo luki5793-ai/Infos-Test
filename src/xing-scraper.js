@@ -12,20 +12,79 @@ import {
 } from './utils.js';
 
 /**
+ * Load session cookies into browser
+ * @param {Page} page - Playwright page
+ * @param {string} cookiesJson - JSON string of cookies
+ * @param {string} domain - Domain to set cookies for
+ * @returns {Promise<boolean>} - Whether cookies were loaded successfully
+ */
+export async function loadSessionCookies(page, cookiesJson, domain = '.xing.com') {
+    try {
+        const cookies = JSON.parse(cookiesJson);
+
+        const formattedCookies = cookies.map(cookie => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain || domain,
+            path: cookie.path || '/',
+            expires: cookie.expires || -1,
+            httpOnly: cookie.httpOnly || false,
+            secure: cookie.secure || false,
+            sameSite: cookie.sameSite || 'Lax',
+        }));
+
+        await page.context().addCookies(formattedCookies);
+        console.log(`✅ Loaded ${formattedCookies.length} session cookies`);
+        return true;
+    } catch (error) {
+        console.log(`Cookie loading error: ${error.message}`);
+        return false;
+    }
+}
+
+/**
  * Login to Xing
  * @param {Page} page - Playwright page
  * @param {string} email - Xing email
  * @param {string} password - Xing password
+ * @param {string} sessionCookies - Optional session cookies JSON
  * @returns {Promise<boolean>} - Whether login was successful
  */
-export async function loginToXing(page, email, password) {
+export async function loginToXing(page, email, password, sessionCookies = null) {
+    // Option 1: Use session cookies if provided
+    if (sessionCookies) {
+        console.log('🔑 Using Xing session cookies...');
+
+        const cookiesLoaded = await loadSessionCookies(page, sessionCookies, '.xing.com');
+        if (!cookiesLoaded) {
+            console.log('⚠️ Failed to load session cookies, trying email/password login');
+        } else {
+            // Verify cookies work
+            await page.goto('https://www.xing.com/feed', { waitUntil: 'networkidle' });
+            await randomDelay(3000, 5000);
+
+            const isLoggedIn = await page.evaluate(() => {
+                return !window.location.href.includes('/login');
+            });
+
+            if (isLoggedIn) {
+                console.log('✅ Xing session cookies are valid');
+                return true;
+            } else {
+                console.log('⚠️ Session cookies expired or invalid, trying email/password login');
+            }
+        }
+    }
+
+    // Option 2: Use email/password login
     if (!email || !password) {
-        console.log('⚠️ Xing credentials not provided, skipping login');
+        console.log('⚠️ Xing credentials not provided');
+        console.log('ℹ️  Provide either sessionCookies OR email+password to enable Xing scraping');
         return false;
     }
 
     try {
-        console.log('🔑 Logging in to Xing...');
+        console.log('🔑 Logging in to Xing with email/password...');
 
         await page.goto('https://login.xing.com/', { waitUntil: 'networkidle' });
         await randomDelay(2000, 3000);
@@ -51,7 +110,8 @@ export async function loginToXing(page, email, password) {
             console.log('✅ Xing login successful');
             return true;
         } else {
-            console.log('❌ Xing login failed - check credentials or handle CAPTCHA/2FA manually');
+            console.log('❌ Xing login failed');
+            console.log('ℹ️  If you see CAPTCHA or 2FA, use the manual cookie method (see LinkedIn instructions)');
             return false;
         }
 
@@ -267,14 +327,15 @@ export async function findITDecisionMakersXing(jobTitles, locations, options = {
         maxLeadsPerSearch = 50,
         xingEmail = null,
         xingPassword = null,
+        xingSessionCookies = null,
     } = options;
 
     const allProfiles = [];
 
-    // Check if credentials are provided
-    if (!xingEmail || !xingPassword) {
-        console.log('⚠️ Xing credentials not provided. Skipping Xing scraping.');
-        console.log('ℹ️  Add xingEmail and xingPassword to enable Xing scraping.');
+    // Check if credentials OR session cookies are provided
+    if (!xingEmail && !xingPassword && !xingSessionCookies) {
+        console.log('⚠️ Xing credentials or session cookies not provided. Skipping Xing scraping.');
+        console.log('ℹ️  Add xingEmail+xingPassword OR xingSessionCookies to enable Xing scraping.');
         return [];
     }
 
@@ -290,8 +351,8 @@ export async function findITDecisionMakersXing(jobTitles, locations, options = {
                 const { isLogin } = request.userData;
 
                 if (isLogin) {
-                    // Perform login
-                    const loginSuccess = await loginToXing(page, xingEmail, xingPassword);
+                    // Perform login (tries cookies first, then email/password)
+                    const loginSuccess = await loginToXing(page, xingEmail, xingPassword, xingSessionCookies);
 
                     if (!loginSuccess) {
                         throw new Error('Xing login failed');

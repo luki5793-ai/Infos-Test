@@ -46,8 +46,10 @@ await Actor.main(async () => {
         emailVerification = false,
         linkedInEmail = null,
         linkedInPassword = null,
+        linkedInSessionCookies = null,
         xingEmail = null,
         xingPassword = null,
+        xingSessionCookies = null,
         proxyConfiguration = {},
     } = input;
 
@@ -80,6 +82,7 @@ await Actor.main(async () => {
                 maxLeadsPerSearch,
                 linkedInEmail,
                 linkedInPassword,
+                linkedInSessionCookies,
                 proxyConfiguration,
             });
 
@@ -113,6 +116,7 @@ await Actor.main(async () => {
                 maxLeadsPerSearch,
                 xingEmail,
                 xingPassword,
+                xingSessionCookies,
             });
 
             console.log(`Found ${xingProfiles.length} profiles on Xing`);

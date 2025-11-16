@@ -12,20 +12,81 @@ import {
 } from './utils.js';
 
 /**
+ * Load session cookies into browser
+ * @param {Page} page - Playwright page
+ * @param {string} cookiesJson - JSON string of cookies
+ * @param {string} domain - Domain to set cookies for
+ * @returns {Promise<boolean>} - Whether cookies were loaded successfully
+ */
+export async function loadSessionCookies(page, cookiesJson, domain = '.linkedin.com') {
+    try {
+        const cookies = JSON.parse(cookiesJson);
+
+        // Ensure cookies are in the right format
+        const formattedCookies = cookies.map(cookie => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain || domain,
+            path: cookie.path || '/',
+            expires: cookie.expires || -1,
+            httpOnly: cookie.httpOnly || false,
+            secure: cookie.secure || false,
+            sameSite: cookie.sameSite || 'Lax',
+        }));
+
+        await page.context().addCookies(formattedCookies);
+        console.log(`✅ Loaded ${formattedCookies.length} session cookies`);
+        return true;
+    } catch (error) {
+        console.log(`Cookie loading error: ${error.message}`);
+        return false;
+    }
+}
+
+/**
  * Login to LinkedIn
  * @param {Page} page - Playwright page
  * @param {string} email - LinkedIn email
  * @param {string} password - LinkedIn password
+ * @param {string} sessionCookies - Optional session cookies JSON
  * @returns {Promise<boolean>} - Whether login was successful
  */
-export async function loginToLinkedIn(page, email, password) {
+export async function loginToLinkedIn(page, email, password, sessionCookies = null) {
+    // Option 1: Use session cookies if provided
+    if (sessionCookies) {
+        console.log('🔑 Using LinkedIn session cookies...');
+
+        const cookiesLoaded = await loadSessionCookies(page, sessionCookies, '.linkedin.com');
+        if (!cookiesLoaded) {
+            console.log('⚠️ Failed to load session cookies, trying email/password login');
+        } else {
+            // Verify cookies work by navigating to LinkedIn
+            await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle' });
+            await randomDelay(3000, 5000);
+
+            const isLoggedIn = await page.evaluate(() => {
+                return !window.location.href.includes('/login') &&
+                       !window.location.href.includes('/authwall');
+            });
+
+            if (isLoggedIn) {
+                console.log('✅ LinkedIn session cookies are valid');
+                return true;
+            } else {
+                console.log('⚠️ Session cookies expired or invalid, trying email/password login');
+            }
+        }
+    }
+
+    // Option 2: Use email/password login
     if (!email || !password) {
-        console.log('⚠️ LinkedIn credentials not provided, skipping login');
+        console.log('⚠️ LinkedIn credentials not provided');
+        console.log('ℹ️  Provide either sessionCookies OR email+password to enable LinkedIn scraping');
         return false;
     }
 
     try {
-        console.log('🔑 Logging in to LinkedIn...');
+        console.log('🔑 Logging in to LinkedIn with email/password...');
 
         await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle' });
         await randomDelay(2000, 3000);
@@ -49,9 +110,18 @@ export async function loginToLinkedIn(page, email, password) {
 
         if (isLoggedIn) {
             console.log('✅ LinkedIn login successful');
+
+            // Save cookies for future use
+            const cookies = await page.context().cookies();
+            console.log('💾 Session established - you can export these cookies for future runs');
+
             return true;
         } else {
-            console.log('❌ LinkedIn login failed - check credentials or handle CAPTCHA/2FA manually');
+            console.log('❌ LinkedIn login failed');
+            console.log('ℹ️  If you see CAPTCHA or 2FA, use the manual cookie method:');
+            console.log('   1) Login to LinkedIn in your browser');
+            console.log('   2) Open DevTools (F12) > Application > Cookies');
+            console.log('   3) Copy all cookies and paste as JSON in linkedInSessionCookies field');
             return false;
         }
 
@@ -189,15 +259,16 @@ export async function findITDecisionMakers(jobTitles, locations, options = {}) {
         maxLeadsPerSearch = 50,
         linkedInEmail = null,
         linkedInPassword = null,
+        linkedInSessionCookies = null,
         proxyConfiguration = {},
     } = options;
 
     const allProfiles = [];
 
-    // Check if credentials are provided
-    if (!linkedInEmail || !linkedInPassword) {
-        console.log('⚠️ LinkedIn credentials not provided. Skipping LinkedIn scraping.');
-        console.log('ℹ️  Add linkedInEmail and linkedInPassword to enable LinkedIn scraping.');
+    // Check if credentials OR session cookies are provided
+    if (!linkedInEmail && !linkedInPassword && !linkedInSessionCookies) {
+        console.log('⚠️ LinkedIn credentials or session cookies not provided. Skipping LinkedIn scraping.');
+        console.log('ℹ️  Add linkedInEmail+linkedInPassword OR linkedInSessionCookies to enable LinkedIn scraping.');
         return [];
     }
 
@@ -213,8 +284,8 @@ export async function findITDecisionMakers(jobTitles, locations, options = {}) {
                 const { jobTitle, location, isLogin } = request.userData;
 
                 if (isLogin) {
-                    // Perform login
-                    const loginSuccess = await loginToLinkedIn(page, linkedInEmail, linkedInPassword);
+                    // Perform login (tries cookies first, then email/password)
+                    const loginSuccess = await loginToLinkedIn(page, linkedInEmail, linkedInPassword, linkedInSessionCookies);
 
                     if (!loginSuccess) {
                         throw new Error('LinkedIn login failed');
