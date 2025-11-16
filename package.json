@@ -1,6 +1,7 @@
 {
   "name": "it-decision-maker-lead-finder",
   "version": "1.0.0",
+  "type": "module",
   "description": "Apify Actor für IT-Entscheider Lead-Generierung im deutschen B2B-Markt",
   "main": "src/main.js",
   "scripts": {
