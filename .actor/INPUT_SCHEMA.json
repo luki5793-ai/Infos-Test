@@ -35,6 +35,7 @@
     "maxLeadsPerSearch": {
       "title": "Max. Leads pro Suchabfrage",
       "type": "integer",
+      "description": "Maximale Anzahl der Leads pro Suchabfrage (1-200)",
       "default": 50,
       "minimum": 1,
       "maximum": 200
@@ -42,16 +43,19 @@
     "enableLinkedInScraping": {
       "title": "LinkedIn Scraping aktivieren",
       "type": "boolean",
+      "description": "Aktiviert das Scraping von LinkedIn-Profilen",
       "default": true
     },
     "enableXingScraping": {
       "title": "Xing Scraping aktivieren",
       "type": "boolean",
+      "description": "Aktiviert das Scraping von Xing-Profilen",
       "default": true
     },
     "enableWebSearch": {
       "title": "Web-Suche aktivieren",
       "type": "boolean",
+      "description": "Aktiviert die Web-Suche nach E-Mail-Adressen",
       "default": true
     },
     "emailVerification": {
@@ -63,6 +67,7 @@
     "proxyConfiguration": {
       "title": "Proxy-Konfiguration",
       "type": "object",
+      "description": "Apify Proxy-Einstellungen für Anti-Blocking",
       "editor": "proxy",
       "default": {"useApifyProxy": true}
     }
